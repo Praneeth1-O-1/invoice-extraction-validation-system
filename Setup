@@ -1,0 +1,110 @@
+# Invoice QC Service - Project Setup
+## Project Structure
+```
+invoice-qc-service/
+├── invoice_qc/
+│   ├── __init__.py
+│   ├── extractor.py          # PDF extraction logic
+│   ├── validator.py          # Validation rules and logic
+│   ├── cli.py                # CLI interface
+│   ├── schemas.py            # Data models (Pydantic)
+│   └── config.py             # Configuration
+├── api/
+│   ├── __init__.py
+│   ├── main.py               # FastAPI application
+│   └── routes.py             # API endpoints
+├── tests/
+│   ├── __init__.py
+│   ├── test_extractor.py
+│   └── test_validator.py
+├── pdfs/                     # Sample invoice PDFs (from provided link)
+├── output/                   # Generated outputs
+├── requirements.txt
+├── README.md
+├── .env.example
+└── .gitignore
+
+```
+## Initial Setup Commands
+
+```bash
+# Create project directory
+mkdir invoice-qc-service
+cd invoice-qc-service
+
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# On Windows:
+venv\Scripts\activate
+# On Mac/Linux:
+source venv/bin/activate
+
+# Create directory structure
+mkdir -p invoice_qc api tests pdfs output
+
+# Create __init__.py files
+touch invoice_qc/__init__.py
+touch api/__init__.py
+touch tests/__init__.py
+```
+
+## Dependencies (requirements.txt)
+
+```txt
+# Core dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+python-multipart==0.0.6
+
+# PDF processing
+pdfplumber==0.10.3
+PyPDF2==3.0.1
+
+# CLI
+typer==0.9.0
+rich==13.7.0
+
+# Utilities
+python-dateutil==2.8.2
+regex==2023.10.3
+
+# Testing
+pytest==7.4.3
+httpx==0.25.2
+```
+
+## Quick Install
+
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+## .gitignore
+
+```
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Output files
+output/
+*.json
+*.log
+
+# IDE
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+

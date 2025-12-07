@@ -1,0 +1,43 @@
+{
+  "summary": {
+    "total_invoices": 5,
+    "valid_invoices": 5,
+    "invalid_invoices": 0,
+    "invoices_with_warnings": 0,
+    "error_counts": {},
+    "warning_counts": {}
+  },
+  "results": [
+    {
+      "invoice_id": "234953",
+      "is_valid": true,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "invoice_id": "34869",
+      "is_valid": true,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "invoice_id": "34343",
+      "is_valid": true,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "invoice_id": "123456",
+      "is_valid": true,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "invoice_id": "89493",
+      "is_valid": true,
+      "errors": [],
+      "warnings": []
+    }
+  ],
+  "generated_at": "2025-12-07T08:28:49.523765"
+}

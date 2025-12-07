@@ -1,0 +1,150 @@
+# AI Usage Notes – Invoice QC Service Development
+
+This document outlines how AI tools (primarily ChatGPT GPT-4) were utilized during the development of the Invoice QC Service. It details specific instances where AI expedited development, where it failed due to context limitations, and how I intervened to ensure production-grade quality.
+
+-----
+
+# Tools Used
+
+  * ChatGPT (GPT-4) — Used for scaffolding, syntax lookup, and initial idea generation.
+  * GitHub Copilot — Used for inline code completion.
+
+Philosophy: AI was treated as a junior pair programmer—useful for generating boilerplate and basic patterns, but requiring senior oversight for logic, security, and architectural decisions.
+
+-----
+
+# Development Timeline & AI Assistance
+
+-----
+
+# Phase 1 — Schema Design
+
+Conversation 1 — B2B Invoice Schema
+
+AI Used For:
+Brainstorming standard invoice fields and generating a baseline Pydantic model.
+
+Prompt:
+
+> "I need to design a schema for B2B invoices. What fields are essential for extraction and validation?"
+
+AI Response:
+Suggested standard fields: `invoice_number`, `invoice_date`, `due_date`, `seller`, `buyer`, `currency`, and `totals`.
+
+My Refinement:
+I accepted the baseline but significantly extended it based on the specific PDF dataset:
+
+  * Added `external_reference` (PO Number).
+  * Added `payment_terms`.
+  * Verdict: AI provided the skeleton; I tailored it to the domain data.
+
+-----
+
+# Phase 2 — Regex & Data Extraction
+
+Conversation 2 — German Invoice Numbers
+
+AI Used For:
+Drafting regex patterns for alphanumeric sequences.
+
+Prompt:
+
+> "Give me a regex to detect invoice numbers in German-style invoices where the number often appears as ‘AUFNR12345’."
+
+AI Suggestion:
+
+```python
+r"AUFNR\s+(\d+)"  # Expects a mandatory space
+```
+
+The Failure:
+Real-world PDFs often concatenated the text (e.g., `Order AUFNR234953...`). The AI's pattern missed these completely.
+
+My Fix:
+
+```python
+r"AUFNR\s*([0-9]+)"  # Handles optional spacing
+```
+
+Result: 100% capture rate on the test set.
+
+-----
+
+Conversation 3 — Monetary Amount Extraction
+
+AI Used For:
+Basic pattern matching for currency.
+
+Prompt:
+
+> "How do I extract monetary amounts like ‘1.234,56 EUR’ from German financial documents?"
+
+AI Suggestion:
+
+```python
+r"\d+\.\d{2}"  # Standard US format
+```
+
+The Failure:
+This was fundamentally incorrect for German localization:
+
+  * Failed on `.` thousands separators (`1.234,56`).
+  * Failed on `,` decimal separators.
+  * Failed on amounts without cents or with suffix currencies.
+
+My Solution:
+I implemented a robust cleaning function instead of a fragile regex:
+
+```python
+raw = re.sub(r"[^0-9\.,]", "", s)      # Remove non-numeric/separator chars
+raw = raw.replace(".", "").replace(",", ".") # Swap German format to Python float
+return Decimal(raw)
+```
+
+Result: robustly handles `216,00`, `1.080,00`, and `€41,04`.
+
+-----
+
+# Phase 3 — API Implementation & Architecture
+
+Conversation 4 — FastAPI Scaffolding
+
+AI Used For:
+Generating a quick starting point for a file upload endpoint.
+
+AI Output:
+A minimal example lacking error handling, type safety, or resource management.
+
+My Engineering Refinement:
+I rewrote the endpoint to be production-ready:
+
+  * Resource Management: Added `tempfile.TemporaryDirectory` context managers to prevent disk bloat.
+  * Security: Implemented CORS middleware.
+  * Validation: Switched from `dict` inputs to strict Pydantic models.
+  * Safety: Added `try/finally` blocks for file cleanup and specific `HTTPException` handling.
+
+Verdict: AI provided the scaffolding; I wrote the production code.
+
+-----
+
+Conversation 5 — Architectural Strategy (NLP vs. Regex)
+
+AI Used For:
+Consultation on extraction strategies.
+
+Prompt:
+
+> "Should I use NLP models for text extraction?"
+
+AI Suggestion:
+Suggested using spaCy, Transformers, or training a custom model (NER) to detect fields.
+
+My Decision: REJECTED.
+
+Reasoning:
+
+1.  Overkill: Too complex for a 48–72 hour assignment.
+2.  Determinism: Regex/Rule-based logic is easier to test and debug than probabilistic models.
+3.  Consistency: The PDF layouts were consistent enough to not require ML.
+
+Verdict: I chose a rule-based approach for better reliability and faster delivery.
