@@ -100,8 +100,14 @@ class Invoice(BaseModel):
         if v is None or isinstance(v, date):
             return v
         if isinstance(v, str):
-            # Try common date formats
-            for fmt in ['%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%d.%m.%Y']:
+            # Clean string
+            v = v.strip()
+            # Try common date formats (English & International)
+            formats = [
+                '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%d.%m.%Y',
+                '%d-%m-%Y', '%B %d, %Y', '%d %b %Y'
+            ]
+            for fmt in formats:
                 try:
                     return datetime.strptime(v, fmt).date()
                 except ValueError:

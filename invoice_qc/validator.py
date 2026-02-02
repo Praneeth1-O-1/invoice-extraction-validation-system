@@ -236,7 +236,7 @@ class InvoiceValidator:
             invoice_key = (
                 invoice.invoice_number.strip().upper(),
                 invoice.seller_name.strip().upper(),
-                invoice.invoice_date
+                str(invoice.invoice_date)
             )
             
             if invoice_key in self.seen_invoices:

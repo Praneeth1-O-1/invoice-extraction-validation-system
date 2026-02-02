@@ -1,6 +1,6 @@
 """
 PDF invoice extraction module.
-Extracts structured data from invoice PDFs with German → English normalization.
+Extracts structured data from invoice PDFs with English logic.
 """
 
 import re
@@ -13,65 +13,39 @@ from .schemas import Invoice, LineItem, Currency
 
 
 class InvoiceExtractor:
-    """Extracts structured invoice data from PDF files"""
+    """Extracts structured invoice data from English PDF files"""
 
     def __init__(self):
-        # German → English keyword normalization map
-        self.keyword_map = {
-            "Rechnung": "Invoice",
-            "Rechnungsnummer": "Invoice Number",
-            "Rechnungsdatum": "Invoice Date",
-            "Datum": "Date",
-            "Lieferdatum": "Delivery Date",
-            "Bestellnummer": "Order Number",
-            "Bestellung": "Order",
-            "Gesamtwert inkl. MwSt": "Total Including Tax",
-            "Gesamtwert": "Total",
-            "MwSt": "VAT",
-            "Zahlungsbedingungen": "Payment Terms",
-            "Kostenstelle": "Cost Center",
-            "Lief.Art.Nr": "Item Number",
-            "Sterilisationsmittel": "Sterilization Agent",
-            "Beispielname Unternehmen": "Example Company",
-        }
-
-        # Default extraction patterns
+        # Default extraction patterns for English invoices
         self.patterns = {
             "invoice_number": [
-                r"Invoice\s*(?:Number|No\.?|#)\s*:?\s*([A-Z0-9\-\/]+)",
-                r"Order\s*(?:Number|No\.?|#)\s*:?\s*([A-Z0-9\-\/]+)",
+                r"INVOICE\s*(?:#|Number|No\.?)\s*:?\s*([A-Z0-9\-\/]+)",
+                r"Inv\.\s*No\.?\s*:?\s*([A-Z0-9\-\/]+)",
             ],
             "invoice_date": [
+                r"DATE\s*:?\s*(\d{1,2}[\/\.\-]\d{1,2}[\/\.\-]\d{2,4})",
                 r"Invoice\s*Date\s*:?\s*(\d{1,2}[\/\.\-]\d{1,2}[\/\.\-]\d{2,4})",
-                r"Date\s*:?\s*(\d{1,2}[\/\.\-]\d{1,2}[\/\.\-]\d{2,4})",
             ],
             "due_date": [
+                r"Due\s*(?:after|by|date)\s*:?\s*(\d{1,2}[\/\.\-]\d{1,2}[\/\.\-]\d{2,4})",
                 r"Due\s*Date\s*:?\s*(\d{1,2}[\/\.\-]\d{1,2}[\/\.\-]\d{2,4})",
             ],
             "po_number": [
-                r"(?:PO|Purchase\s*Order)\s*(?:Number|No\.?)\s*:?\s*([A-Z0-9\-]+)",
+                r"P\.?O\.?\s*(?:NUMBER|No\.?|#)\s*:?\s*([A-Z0-9\-\/]+)",
+                r"Purchase\s*Order\s*:?\s*([A-Z0-9\-\/]+)",
             ],
             "payment_terms": [
+                r"TERMS\s*:?\s*([^\n]+)",
                 r"Payment\s*Terms\s*:?\s*([^\n]+)",
             ],
         }
 
         self.currency_symbols = {
-            "€": "EUR",
             "$": "USD",
+            "€": "EUR",
             "£": "GBP",
             "₹": "INR",
         }
-
-    # ----------------------------------------------------------------------
-    # NORMALIZATION
-    # ----------------------------------------------------------------------
-    def _normalize_keywords(self, text: str) -> str:
-        """Replace German keywords with English equivalents."""
-        normalized = text
-        for german, english in self.keyword_map.items():
-            normalized = normalized.replace(german, english)
-        return normalized
 
     # ----------------------------------------------------------------------
     # EXTRACTION ENTRY POINTS
@@ -99,9 +73,6 @@ class InvoiceExtractor:
                     if extracted:
                         full_text += extracted + "\n"
 
-                # Normalize German → English labels
-                full_text = self._normalize_keywords(full_text)
-
                 # Parse structured data
                 invoice_data = self._parse_invoice_text(full_text)
                 invoice_data["source_file"] = pdf_path.name
@@ -123,27 +94,21 @@ class InvoiceExtractor:
     def _parse_invoice_text(self, text: str) -> Dict[str, Any]:
         data = {}
 
-        # Invoice number (English style)
+        # Invoice number
         data["invoice_number"] = self._extract_with_patterns(text, self.patterns["invoice_number"])
-
-        # --- NEW AUFNR invoice number extraction ---
-        if not data.get("invoice_number"):
-            m = re.search(r"AUFNR\s*([0-9]+)", text)
-            if m:
-                data["invoice_number"] = m.group(1)
 
         # Invoice date
         invoice_date_str = self._extract_with_patterns(text, self.patterns["invoice_date"])
         if invoice_date_str:
             data["invoice_date"] = self._parse_date(invoice_date_str)
 
-        # Fallback German-style date (dd.mm.yyyy)
-        if not data.get("invoice_date"):
-            m = re.search(r"\b(\d{2}\.\d{2}\.\d{4})\b", text)
-            if m:
-                data["invoice_date"] = self._parse_date(m.group(1))
-
         # Due date
+        # Check for relative due date text first (e.g. "Due after 30 days")
+        due_text = self._extract_with_patterns(text, self.patterns["payment_terms"])
+        if due_text and "days" in due_text.lower():
+            # Logic to calculate due date could go here, but for now we look for explicit dates
+            pass
+            
         due_date_str = self._extract_with_patterns(text, self.patterns["due_date"])
         if due_date_str:
             data["due_date"] = self._parse_date(due_date_str)
@@ -167,7 +132,6 @@ class InvoiceExtractor:
 
         return data
 
-
     # ----------------------------------------------------------------------
     # REGEX HELPERS
     # ----------------------------------------------------------------------
@@ -180,9 +144,9 @@ class InvoiceExtractor:
 
     def _parse_date(self, date_str: str) -> Optional[str]:
         date_formats = [
-            "%d/%m/%Y", "%m/%d/%Y", "%d.%m.%Y",
-            "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y",
-            "%m/%d/%y", "%d.%m.%y",
+            "%d.%m.%Y", "%m.%d.%Y",  # Dot separators
+            "%Y-%m-%d", "%d-%m-%Y",  # Dash separators
+            "%d/%m/%Y", "%m/%d/%Y",  # Slash separators
         ]
         for fmt in date_formats:
             try:
@@ -197,19 +161,117 @@ class InvoiceExtractor:
     def _extract_parties(self, text: str) -> Dict[str, Any]:
         data = {}
 
-        # Improved seller detection for German-style invoices
-        # Extract seller block (English-normalized)
-        # Seller = text before 'Order AUFNR'
-        seller_match = re.search(r"(.+?)\s+Order\s+AUFNR", text)
-        if seller_match:
-            data["seller_name"] = seller_match.group(1).strip()
+        # ------------------------------------------------------------------
+        # Heuristic: Seller is often at the top-left or centered at top.
+        # We look at the first few non-empty lines, skipping known headers.
+        
+        lines = text.split('\n')
+        seller_lines = []
+        
+        # Stop-words that indicate we've moved past the header/branding area
+        header_stop_patterns = [
+            r"^(?:TO|BILL TO|SHIP TO|SOLD TO|BILLED TO):", 
+            r"^INVOICE\s*(?:#|NO|NUMBER)", 
+            r"^DATE:", 
+            r"^PAGE",
+            r"^DETAILS"
+        ]
+        
+        for line in lines[:20]: # Only check top section
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Skip generic document titles if they appear alone
+            if re.match(r"^(?:INVOICE|TAX INVOICE|CREDIT NOTE)$", line, re.IGNORECASE):
+                continue
+
+            # Check if we hit a stop section
+            if any(re.search(p, line, re.IGNORECASE) for p in header_stop_patterns):
+                break
+                
+            seller_lines.append(line)
+        
+        # Filter metadata from collected seller lines (e.g. if Date appears on same line)
+        cleaned_seller_lines = []
+        for l in seller_lines:
+             # Basic filter: if line looks like a date or invoice number, skip/clean it
+             # But usually top lines are Name, Address, Phone.
+             if re.search(r"INVOICE\s*#", l, re.IGNORECASE): continue
+             cleaned_seller_lines.append(l)
+
+        if cleaned_seller_lines:
+            data["seller_name"] = cleaned_seller_lines[0]
+            if len(cleaned_seller_lines) > 1:
+                data["seller_address"] = " ".join(cleaned_seller_lines[1:4])
 
 
-        # Buyer detection fallback
-        buyer_match = re.search(r"(Order[\s\S]{0,200})", text)
-        if buyer_match:
-            lines = [l.strip() for l in buyer_match.group(1).split("\n") if l.strip()]
-            data["buyer_name"] = lines[0]
+        # ------------------------------------------------------------------
+        # BUYER Extraction
+        # ------------------------------------------------------------------
+        # Look for "TO" or "BILL TO" blocks.
+        
+        # We'll search for the keyword, then capture lines immediately following it.
+        # Regex explanation:
+        # (?:\bTO\b|BILL TO|SOLD TO|BILLED TO)  --> Trigger words
+        # \s*[:\-]?\s*                          --> Separator (optional)
+        # (.*?)                                 --> Capture content (lazy)
+        # (?=\n\s*\n|\bSHIP TO\b|\bINVOICE\b|...) --> Stop text (Lookahead)
+        
+        buyer_keywords = r"(?:\bTO\b|BILL TO|SOLD TO|BILLED TO|CUSTOMER)"
+        
+        # Find all start positions
+        matches = list(re.finditer(buyer_keywords, text, re.IGNORECASE))
+        
+        if matches:
+            # Usually the first match is the main Bill-To
+            match = matches[0]
+            start_idx = match.end()
+            
+            # Special case: check if there is text on the SAME line after the colon
+            # e.g. "Bill To: Acme Corp"
+            # match.end() gives index after "Bill To", we check up to newline
+            next_newline = text.find('\n', start_idx)
+            same_line_content = text[start_idx:next_newline].strip(" :-\t")
+            
+            buyer_candidates = []
+            
+            if same_line_content:
+                buyer_candidates.append(same_line_content)
+                # Then grab subsequent lines
+                search_start = next_newline
+            else:
+                search_start = start_idx
+            
+            # Grab next chunk of lines
+            chunk = text[search_start:search_start+500]
+            chunk_lines = chunk.split('\n')
+            
+            for line in chunk_lines:
+                line = line.strip()
+                if not line:
+                    # Allow 1 empty line gap, but stop at second? 
+                    # Actually standard invoice blocks are contiguous.
+                    # If we already have candidates and hit empty, we might stop or continue depending on layout.
+                    # For safety, if we have a name, empty line might mean end of block.
+                    if buyer_candidates:
+                        break # Assume block end
+                    continue
+                
+                # Check for stop keywords (other sections)
+                if re.search(r"(SHIP TO|INVOICE|DATE|QUANTITY|DESCRIPTION|ITEM|TOTAL|PAYMENT)", line, re.IGNORECASE):
+                    break
+                    
+                buyer_candidates.append(line)
+            
+            if buyer_candidates:
+                data["buyer_name"] = buyer_candidates[0]
+                if len(buyer_candidates) > 1:
+                    data["buyer_address"] = " ".join(buyer_candidates[1:])
+
+        # Fallback: Validation often requires both names. 
+        # If we failed to find specific "TO" block, but have text, maybe we missed it.
+        # But heuristic is safer than guessing random lines.
 
         return data
 
@@ -217,15 +279,17 @@ class InvoiceExtractor:
     # CURRENCY & AMOUNTS
     # ----------------------------------------------------------------------
     def _extract_currency(self, text: str) -> Optional[str]:
+        # Check symbols first
+        for symbol, code in self.currency_symbols.items():
+            if symbol in text:
+                return code
+        
+        # Check codes
         for currency in Currency:
             if re.search(r"\b" + currency.value + r"\b", text, re.IGNORECASE):
                 return currency.value
 
-        for symbol, code in self.currency_symbols.items():
-            if symbol in text:
-                return code
-
-        return None
+        return "USD"
 
     def _extract_amounts(self, text: str) -> Dict[str, Any]:
         data = {}
@@ -233,36 +297,56 @@ class InvoiceExtractor:
         def clean_number(s: str) -> Optional[Decimal]:
             if not s:
                 return None
-            # Remove everything except digits, comma, dot
-            cleaned = re.sub(r"[^0-9\.,]", "", s)
-            # Fix German format
-            cleaned = cleaned.replace(".", "").replace(",", ".")
+            # Standard English: remove characters that aren't digits or dots
+            # Note: Dealing with thousands separators (commas) by removing them
+            cleaned = re.sub(r"[^0-9\.]", "", s.replace(',', ''))
             try:
                 return Decimal(cleaned)
             except:
                 return None
 
-        # Total Including Tax
-        gross_match = re.search(
-            r"Total Including Tax[^0-9]*([\d\.,]+)",
-            text,
-            re.IGNORECASE,
-        )
-        if gross_match:
-            data["gross_total"] = clean_number(gross_match.group(1))
+        # Helper to find values associated with keys at end of lines
+        # e.g. "TOTAL DUE 576.95" or "TOTAL DUE: 576.95"
+        def find_value(keys: List[str]) -> Optional[Decimal]:
+            for key in keys:
+                # Pattern: Key followed optionally by colon/symbol, then number at END of line or text
+                pattern = r"(?:" + "|".join(keys) + r")\s*[:$€]?\s*([\d,\.]+)"
+                # We want the match that is likely the final amount, not a line item description
+                # Searching line by line is safer for totals usually at the bottom
+                matches = list(re.finditer(pattern, text, re.IGNORECASE))
+                if matches:
+                    # Take the last match as totals usually appear at bottom
+                    return clean_number(matches[-1].group(1))
+            return None
 
-        # Fallback for Total
-        if "gross_total" not in data:
-            total_match = re.search(
-                r"Total[^0-9]*([\d\.,]+)",
-                text,
-                re.IGNORECASE,
-            )
-            if total_match:
-                data["gross_total"] = clean_number(total_match.group(1))
+        # Gross Total
+        # Prioritize specific "Total Due" labels over generic "Total"
+        gross = find_value(["TOTAL DUE", "AMOUNT DUE", "TOTAL PAYABLE", "GRAND TOTAL"])
+        if gross:
+            data["gross_total"] = gross
+        else:
+            # Fallback to just "TOTAL" but be careful not to pick up column header
+            # Regex ensures it matches a number
+            match = re.search(r"\bTOTAL\s*[:$€]?\s*([\d,\.]+)", text, re.IGNORECASE)
+            if match:
+                 # Verify it's not the header "TOTAL" which usually isn't followed immediately by a number
+                 data["gross_total"] = clean_number(match.group(1))
+
+        # Subtotal
+        sub = find_value(["SUBTOTAL", "SUB TOTAL", "NET TOTAL"])
+        if sub:
+            data["net_total"] = sub
+
+        # Tax
+        tax = find_value(["SALES TAX", "TAX", "VAT", "TOTAL TAX"])
+        if tax:
+            data["tax_amount"] = tax
+
+        # Heuristic: If we have Gross and Tax but no Net, or combinations
+        if data.get("gross_total") and data.get("tax_amount") and not data.get("net_total"):
+            data["net_total"] = data["gross_total"] - data["tax_amount"]
 
         return data
-
 
     # ----------------------------------------------------------------------
     # LINE ITEMS
@@ -271,49 +355,77 @@ class InvoiceExtractor:
         line_items = []
 
         try:
+            # Strategy 1: Table Extraction (Works if PDF has grid lines)
             for page in pdf.pages:
                 tables = page.extract_tables()
                 for table in tables:
                     if not table or len(table) < 2:
                         continue
-
+                    
                     header = table[0]
-                    desc_col = self._find_column_index(header, ["description", "item", "product"])
-                    qty_col = self._find_column_index(header, ["qty", "quantity", "menge"])
-                    price_col = self._find_column_index(header, ["price", "unit price", "preis"])
-                    total_col = self._find_column_index(header, ["total", "amount", "betrag"])
+                    desc_col = self._find_column_index(header, ["description", "item", "product", "details"])
+                    qty_col = self._find_column_index(header, ["qty", "quantity", "count"])
+                    price_col = self._find_column_index(header, ["unit price", "price", "rate", "cost", "unit"])
+                    total_col = self._find_column_index(header, ["total", "amount", "extension"])
+                    
+                    # If we found at least a description column
+                    if desc_col is not None:
+                         for row in table[1:]:
+                            if not row: continue
+                            
+                            # Clean row content
+                            clean_row = [str(c).strip() if c else "" for c in row]
+                            
+                            # Skip header repetition or footer
+                            if "total" in clean_row[0].lower(): continue
 
-                    for row in table[1:]:
-                        if not row or all(not cell or str(cell).strip() == "" for cell in row):
-                            continue
-
-                        item = {}
-
-                        if desc_col is not None:
-                            item["description"] = str(row[desc_col]).strip()
-
-                        if qty_col is not None:
-                            try:
-                                item["quantity"] = float(row[qty_col])
-                            except:
-                                pass
-
-                        if price_col is not None and row[price_col]:
-                            try:
-                                price_str = str(row[price_col]).replace(",", ".")
-                                item["unit_price"] = Decimal(price_str)
-                            except:
-                                pass
-
-                        if total_col is not None and row[total_col]:
-                            try:
-                                total_str = str(row[total_col]).replace(",", ".")
-                                item["line_total"] = Decimal(total_str)
-                            except:
-                                pass
-
-                        if item:
-                            line_items.append(item)
+                            item = {}
+                            item["description"] = clean_row[desc_col].replace('\n', ' ')
+                            
+                            if qty_col is not None:
+                                try: item["quantity"] = float(clean_row[qty_col].replace(',', ''))
+                                except: pass
+                            
+                            if price_col is not None:
+                                try: item["unit_price"] = Decimal(re.sub(r"[^0-9\.]", "", clean_row[price_col]))
+                                except: pass
+                                
+                            if total_col is not None:
+                                try: item["line_total"] = Decimal(re.sub(r"[^0-9\.]", "", clean_row[total_col]))
+                                except: pass
+                            
+                            if item.get("description") and (item.get("line_total") or item.get("quantity")):
+                                line_items.append(item)
+            
+            # Strategy 2: Text-based Regex fallback (if tables failed)
+            if not line_items:
+                full_text = ""
+                for page in pdf.pages:
+                     # Layout=True helps preserve horizontal positioning
+                     full_text += page.extract_text(layout=True) + "\n"
+                
+                # Simple pattern: Quantity (number) ... Description (text) ... Price (number) ... Total (number)
+                # This is fragile but handles the "no grid lines" case better
+                # Look for lines starting with a number (quantity)
+                lines = full_text.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if not line: continue
+                    
+                    # Regex: Start with Number (Qty), space, Description, space, Number (Price), space, Number (Total)
+                    # 10 Dextromethorphan polistirex 12.45 124.50
+                    match = re.search(r"^(\d+(?:\.\d+)?)\s+(.+?)\s+(\d+\.\d{2})\s+(\d+\.\d{2})$", line)
+                    if match:
+                        qty, desc, price, total = match.groups()
+                        # Filter out things that look like dates or random numbers
+                        if " " not in desc and len(desc) < 3: continue 
+                        
+                        line_items.append({
+                            "quantity": float(qty),
+                            "description": desc.strip(),
+                            "unit_price": Decimal(price),
+                            "line_total": Decimal(total)
+                        })
 
         except Exception as e:
             print(f"Error extracting line items: {e}")
@@ -323,8 +435,8 @@ class InvoiceExtractor:
     def _find_column_index(self, header: List, keywords: List[str]) -> Optional[int]:
         for i, cell in enumerate(header):
             if cell:
-                cell_lower = str(cell).lower()
+                cell_lower = str(cell).lower().replace('\n', ' ')
                 for keyword in keywords:
-                    if keyword in cell_lower:
+                    if keyword == cell_lower or keyword in cell_lower:
                         return i
         return None
